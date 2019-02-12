@@ -1,14 +1,18 @@
-service: graphql-api
+service: questions-backend
 
 plugins:
   - serverless-webpack
+
+webpack:
+  webpackConfig: ./webpack.config.js
+  includeModules: true
 
 custom:
   webpackIncludeModules: true
 
 provider:
   name: aws
-  runtime: nodejs4.3
+  runtime: nodejs8.10
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -26,8 +30,23 @@ provider:
       Resource: arn:aws:dynamodb:us-east-1:*:*
 
 functions:
-  graphql:
-    handler: lib/handler.graphql
+  auth:
+    handler: lib/handler.auth
+    cors: true
+  graphqlAuth:
+    handler: lib/handler.graphqlAuth
+    events:
+      - http:
+          path: auth/graphql
+          method: post
+          authorizer:
+            name: auth
+            resultTtlInSeconds: 0
+            identitySource: method.request.header.Authorization
+            type: token
+          cors: true
+  graphqlPublic:
+    handler: lib/handler.graphqlPublic
     events:
       - http:
           path: graphql
@@ -40,24 +59,66 @@ functions:
           type: dynamodb
           arn:
             Fn::GetAtt:
-              - ArtistsDynamoDbTable
+              - AnswerersDynamoDbTable
               - StreamArn
           batchSize: 1
       - stream:
           type: dynamodb
           arn:
             Fn::GetAtt:
-              - SongsDynamoDbTable
+              - AnswersDynamoDbTable
+              - StreamArn
+          batchSize: 1
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt:
+              - FormsDynamoDbTable
+              - StreamArn
+          batchSize: 1
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt:
+              - QuestionOptionsDynamoDbTable
+              - StreamArn
+          batchSize: 1
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt:
+              - QuestionsDynamoDbTable
               - StreamArn
           batchSize: 1
 
 resources:
   Resources:
-    ArtistsDynamoDbTable:
+    # This response is needed for custom authorizer failures cors support
+    GatewayResponse:
+      Type: 'AWS::ApiGateway::GatewayResponse'
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+        ResponseType: EXPIRED_TOKEN
+        RestApiId:
+          Ref: 'ApiGatewayRestApi'
+        StatusCode: '401'
+    AuthFailureGatewayResponse:
+      Type: 'AWS::ApiGateway::GatewayResponse'
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'*'"
+        ResponseType: UNAUTHORIZED
+        RestApiId:
+          Ref: 'ApiGatewayRestApi'
+        StatusCode: '401'
+    AnswerersDynamoDbTable:
       Type: AWS::DynamoDB::Table
       DeletionPolicy: Retain
       Properties:
-        TableName: 'artists'
+        TableName: 'answerers'
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
@@ -69,11 +130,59 @@ resources:
           WriteCapacityUnits: 1
         StreamSpecification:
           StreamViewType: NEW_AND_OLD_IMAGES
-    SongsDynamoDbTable:
+    AnswersDynamoDbTable:
       Type: AWS::DynamoDB::Table
       DeletionPolicy: Retain
       Properties:
-        TableName: 'songs'
+        TableName: 'answers'
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    FormsDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      Properties:
+        TableName: 'forms'
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    QuestionOptionsDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      Properties:
+        TableName: 'question_options'
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    QuestionsDynamoDbTable:
+      Type: AWS::DynamoDB::Table
+      DeletionPolicy: Retain
+      Properties:
+        TableName: 'questions'
         AttributeDefinitions:
           - AttributeName: id
             AttributeType: S
